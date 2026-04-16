@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+  targetNamespace="http://example.com/payment">
+
+  <!-- MESSAGE -->
+  <bpmn:message id="fraudResultMessage" name="fraudResultMessage">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=businessKey" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+
+  <bpmn:process id="payment-process" name="payment-process" isExecutable="true">
+
+    <!-- START -->
+    <bpmn:startEvent id="start" />
+
+    <!-- CREATE PAYMENT -->
+    <bpmn:serviceTask id="createPayment" name="Create Payment">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="createPayment" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <!-- HOLD MONEY -->
+    <bpmn:serviceTask id="holdMoney" name="Hold Money">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="holdMoney" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="holdGateway" default="holdFailFlow"/>
+
+    <bpmn:sequenceFlow id="holdFailFlow" sourceRef="holdGateway" targetRef="notifyReject"/>
+
+    <bpmn:sequenceFlow id="holdSuccessFlow" sourceRef="holdGateway" targetRef="startFraud">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= holdSuccess</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <!-- FRAUD START -->
+    <bpmn:serviceTask id="startFraud" name="Start Fraud Check">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="startFraud" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <!-- ✅ SAFE MESSAGE WAIT (NO gateway!) -->
+    <bpmn:intermediateCatchEvent id="waitFraud" name="Wait Fraud Result">
+      <bpmn:messageEventDefinition messageRef="fraudResultMessage"/>
+    </bpmn:intermediateCatchEvent>
+
+    <!-- DECISION -->
+    <bpmn:exclusiveGateway id="fraudGateway" default="manualFlow"/>
+
+    <bpmn:sequenceFlow id="fraudApproveFlow" sourceRef="fraudGateway" targetRef="reserveMoney">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= fraudResult = "APPROVE"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:sequenceFlow id="fraudRejectFlow" sourceRef="fraudGateway" targetRef="rejectPayment">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= fraudResult = "REJECT"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:sequenceFlow id="manualFlow" sourceRef="fraudGateway" targetRef="manualTask"/>
+
+    <!-- MANUAL REVIEW -->
+    <bpmn:userTask id="manualTask" name="Manual Review">
+      <bpmn:extensionElements>
+        <zeebe:assignmentDefinition assignee="fraud-team" />
+      </bpmn:extensionElements>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="manualGateway" default="rejectAfterManual"/>
+
+    <bpmn:sequenceFlow id="manualToGateway" sourceRef="manualTask" targetRef="manualGateway"/>
+
+    <bpmn:sequenceFlow id="manualApproveFlow" sourceRef="manualGateway" targetRef="reserveMoney">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= manualResult = "APPROVE"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:sequenceFlow id="rejectAfterManual" sourceRef="manualGateway" targetRef="rejectPayment"/>
+
+    <!-- RESERVE -->
+    <bpmn:serviceTask id="reserveMoney" name="Reserve Money">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="reserveMoney" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="reserveGateway" default="reserveFail"/>
+
+    <bpmn:sequenceFlow id="reserveSuccessFlow" sourceRef="reserveGateway" targetRef="transfer">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= reserveSuccess</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:sequenceFlow id="reserveFail" sourceRef="reserveGateway" targetRef="releaseMoney"/>
+
+    <!-- TRANSFER -->
+    <bpmn:serviceTask id="transfer" name="Transfer Money">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="transfer" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="transferGateway" default="transferFail"/>
+
+    <bpmn:sequenceFlow id="transferSuccessFlow" sourceRef="transferGateway" targetRef="confirm">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">= transferSuccess</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:sequenceFlow id="transferFail" sourceRef="transferGateway" targetRef="releaseMoney"/>
+
+    <!-- CONFIRM -->
+    <bpmn:serviceTask id="confirm" name="Confirm Payment">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="confirm" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <!-- PARALLEL NOTIFY + AUDIT -->
+    <bpmn:parallelGateway id="parallelStart"/>
+    <bpmn:parallelGateway id="parallelEnd"/>
+
+    <bpmn:serviceTask id="notifySuccess" name="Notify Success">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notify" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="audit" name="Audit">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="audit" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="endSuccess" />
+
+    <!-- REJECT FLOW -->
+    <bpmn:serviceTask id="rejectPayment" name="Reject Payment">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="rejectPayment" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="releaseMoney" name="Release Money">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="releaseMoney" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="notifyReject" name="Notify Reject">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notify" retries="3" />
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="endReject" />
+
+    <!-- FLOW -->
+    <bpmn:sequenceFlow id="startToCreate" sourceRef="start" targetRef="createPayment"/>
+    <bpmn:sequenceFlow id="createToHold" sourceRef="createPayment" targetRef="holdMoney"/>
+    <bpmn:sequenceFlow id="holdToGateway" sourceRef="holdMoney" targetRef="holdGateway"/>
+
+    <bpmn:sequenceFlow id="startFraudToWait" sourceRef="startFraud" targetRef="waitFraud"/>
+    <bpmn:sequenceFlow id="waitToGateway" sourceRef="waitFraud" targetRef="fraudGateway"/>
+
+    <bpmn:sequenceFlow id="reserveToGateway" sourceRef="reserveMoney" targetRef="reserveGateway"/>
+    <bpmn:sequenceFlow id="transferToGateway" sourceRef="transfer" targetRef="transferGateway"/>
+    <bpmn:sequenceFlow id="confirmToParallel" sourceRef="confirm" targetRef="parallelStart"/>
+
+    <bpmn:sequenceFlow id="parallelToNotify" sourceRef="parallelStart" targetRef="notifySuccess"/>
+    <bpmn:sequenceFlow id="parallelToAudit" sourceRef="parallelStart" targetRef="audit"/>
+    <bpmn:sequenceFlow id="notifyToJoin" sourceRef="notifySuccess" targetRef="parallelEnd"/>
+    <bpmn:sequenceFlow id="auditToJoin" sourceRef="audit" targetRef="parallelEnd"/>
+    <bpmn:sequenceFlow id="joinToEnd" sourceRef="parallelEnd" targetRef="endSuccess"/>
+
+    <bpmn:sequenceFlow id="rejectToRelease" sourceRef="rejectPayment" targetRef="releaseMoney"/>
+    <bpmn:sequenceFlow id="releaseToNotifyReject" sourceRef="releaseMoney" targetRef="notifyReject"/>
+    <bpmn:sequenceFlow id="notifyRejectToEnd" sourceRef="notifyReject" targetRef="endReject"/>
+
+  </bpmn:process>
+</bpmn:definitions>

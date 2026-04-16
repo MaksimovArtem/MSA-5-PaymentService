@@ -1,0 +1,26 @@
+| Исходное состояние   | Переходное состояние | Событие                  |
+| -------------------- | -------------------- | ------------------------ |
+| INIT                 | HOLD_MONEY           | CREATE_PAYMENT           |
+| HOLD_MONEY           | MONEY_HELD           | HOLD_MONEY_SUCCESS       |
+| HOLD_MONEY           | MONEY_NOT_HELD       | HOLD_MONEY_FAILED        |
+| MONEY_NOT_HELD       | (terminal)           | INSUFFICIENT_MONEY       |
+| MONEY_HELD           | FRAUD_CHECK          | START_FRAUD_CHECK        |
+| FRAUD_CHECK          | WAIT_FRAUD_RESULT    | START_FRAUD_CHECK_SENT   |
+| WAIT_FRAUD_RESULT    | APPROVED             | FRAUD_APPROVED           |
+| WAIT_FRAUD_RESULT    | REJECTED             | FRAUD_REJECTED           |
+| WAIT_FRAUD_RESULT    | MANUAL_REVIEW        | FRAUD_MANUAL             |
+| WAIT_FRAUD_RESULT    | APPROVED             | CUT_OFF_TIMEOUT          |
+| MANUAL_REVIEW        | APPROVED             | MANUAL_APPROVED          |
+| MANUAL_REVIEW        | REJECTED             | MANUAL_REJECTED          |
+| MANUAL_REVIEW        | APPROVED             | CUT_OFF_TIMEOUT          |
+| APPROVED             | RESERVE_MONEY        | APPROVE_PAYMENT_RECORDED |
+| RESERVE_MONEY        | TRANSFER_IN_PROGRESS | RESERVE_MONEY_SUCCESS    |
+| RESERVE_MONEY        | RELEASE_MONEY        | RESERVE_MONEY_FAILED     |
+| REJECTED             | RELEASE_MONEY        | REJECT_PAYMENT_RECORDED  |
+| TRANSFER_IN_PROGRESS | COMPLETED            | TRANSFER_SUCCESS         |
+| TRANSFER_IN_PROGRESS | REFUND_IN_PROGRESS   | TRANSFER_FAILED          |
+| REFUND_IN_PROGRESS   | REFUNDED             | REFUND_SUCCESS           |
+| COMPLETED            | NOTIFICATION_SENT    | CONFIRM_PAYMENT_RECORDED |
+| REFUNDED             | NOTIFICATION_SENT    | REFUND_COMPLETED         |
+| RELEASE_MONEY        | NOTIFICATION_SENT    | RELEASE_MONEY_COMPLETED  |
+| NOTIFICATION_SENT    | (terminal)           | NOTIFICATION_SENT        |
